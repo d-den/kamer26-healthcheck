@@ -1,0 +1,46 @@
+name: Kamer26 Site Health Check
+
+on:
+  schedule:
+    # Every 5 minutes. Public repo = unlimited free Actions minutes, so no
+    # need to economize. GitHub's scheduler is still best-effort and can
+    # lag a few minutes under load, especially at the top of the hour.
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
+
+# Needed so the workflow can commit the updated state.json back to the repo
+permissions:
+  contents: write
+
+jobs:
+  healthcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run health check
+        env:
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          ALERT_FROM_EMAIL: ${{ secrets.ALERT_FROM_EMAIL }}
+          ALERT_FROM_NAME: "Kamer26 Monitoring"
+          ALERT_TO_EMAIL: ${{ secrets.ALERT_TO_EMAIL }}
+          SITE_URL: "https://kamer26.nl"
+        run: python3 healthcheck_cron.py
+
+      - name: Commit updated state
+        if: always()   # commit state even if the check failed, so the next run knows
+        run: |
+          git config user.name "healthcheck-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state.json
+          git diff --staged --quiet || git commit -m "Update health check state [skip ci]"
+          git push
