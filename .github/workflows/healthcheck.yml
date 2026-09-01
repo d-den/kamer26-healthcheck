@@ -38,7 +38,7 @@ jobs:
           ALERT_FROM_EMAIL: ${{ secrets.ALERT_FROM_EMAIL }}
           ALERT_FROM_NAME: "Kamer26 Monitoring"
           ALERT_TO_EMAIL: ${{ secrets.ALERT_TO_EMAIL }}
-          SITE_URL: "https://kamer26.nls"
+          SITE_URL: "https://www.kamer26.nl"
         run: python3 healthcheck_cron.py
 
       - name: Commit updated state
