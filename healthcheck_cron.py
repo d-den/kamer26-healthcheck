@@ -19,6 +19,8 @@ Required env vars / secrets:
     ALERT_FROM_NAME     (optional, defaults to "Site Monitoring")
     ALERT_TO_EMAIL
     SITE_URL
+    NTFY_TOPIC          (optional — if set, also sends a push notification
+                          via ntfy.sh in addition to the email)
 """
 
 import json
@@ -42,7 +44,7 @@ def load_env() -> dict:
     Prefer real environment variables (GitHub Actions secrets).
     Fall back to a local .env file for testing on your own machine.
     """
-    keys = ["BREVO_API_KEY", "ALERT_FROM_EMAIL", "ALERT_FROM_NAME", "ALERT_TO_EMAIL", "SITE_URL"]
+    keys = ["BREVO_API_KEY", "ALERT_FROM_EMAIL", "ALERT_FROM_NAME", "ALERT_TO_EMAIL", "SITE_URL", "NTFY_TOPIC"]
     env = {k: os.environ[k] for k in keys if k in os.environ}
 
     if len(env) < len(keys) and ENV_FILE.exists():
@@ -99,6 +101,29 @@ def send_alert_email(env: dict, subject: str, html_body: str):
         print("Alert email sent.")
 
 
+def send_ntfy_alert(topic: str, title: str, message: str, priority: str = "default"):
+    """
+    Send a push notification via ntfy.sh. Silently skipped if no topic is
+    configured (NTFY_TOPIC not set) — email remains the primary alert.
+    """
+    try:
+        resp = requests.post(
+            f"https://ntfy.sh/{topic}",
+            data=message.encode("utf-8"),
+            headers={
+                "Title": title,
+                "Priority": priority,  # "urgent" for failures, "default" for recovery
+            },
+            timeout=10,
+        )
+        if resp.status_code >= 300:
+            print(f"Failed to send ntfy notification: {resp.status_code} {resp.text}")
+        else:
+            print("Ntfy notification sent.")
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send ntfy notification: {e}")
+
+
 def run_checks(site_url: str):
     results = []
     http_result = check_http(site_url)
@@ -145,9 +170,19 @@ def main():
     if current_status != previous_status:
         if current_status == "fail":
             subject = f"\U0001F534 {site_url} health check FAILED"
+            failed_checks = ", ".join(r["name"] for r in results if not r["passed"])
+            ntfy_message = f"Failed: {failed_checks}"
+            ntfy_priority = "urgent"
         else:
             subject = f"\u2705 {site_url} health check recovered"
+            ntfy_message = "All checks passing again."
+            ntfy_priority = "default"
+
         send_alert_email(env, subject, format_results_html(results, site_url))
+
+        ntfy_topic = env.get("NTFY_TOPIC")
+        if ntfy_topic:
+            send_ntfy_alert(ntfy_topic, subject, ntfy_message, ntfy_priority)
     else:
         print(f"No status change ({current_status}) - no email sent.")
 
