@@ -105,13 +105,21 @@ def send_ntfy_alert(topic: str, title: str, message: str, priority: str = "defau
     """
     Send a push notification via ntfy.sh. Silently skipped if no topic is
     configured (NTFY_TOPIC not set) — email remains the primary alert.
+
+    HTTP headers only support Latin-1, so the title is stripped of any
+    characters (e.g. emoji) that can't be encoded that way. The body has
+    no such restriction and is sent as UTF-8.
     """
+    safe_title = title.encode("latin-1", errors="ignore").decode("latin-1").strip()
+    if not safe_title:
+        safe_title = "Site health check"
+
     try:
         resp = requests.post(
             f"https://ntfy.sh/{topic}",
             data=message.encode("utf-8"),
             headers={
-                "Title": title,
+                "Title": safe_title,
                 "Priority": priority,  # "urgent" for failures, "default" for recovery
             },
             timeout=10,
@@ -170,11 +178,13 @@ def main():
     if current_status != previous_status:
         if current_status == "fail":
             subject = f"\U0001F534 {site_url} health check FAILED"
+            ntfy_title = f"FAILED: {site_url}"
             failed_checks = ", ".join(r["name"] for r in results if not r["passed"])
             ntfy_message = f"Failed: {failed_checks}"
             ntfy_priority = "urgent"
         else:
             subject = f"\u2705 {site_url} health check recovered"
+            ntfy_title = f"Recovered: {site_url}"
             ntfy_message = "All checks passing again."
             ntfy_priority = "default"
 
@@ -182,7 +192,7 @@ def main():
 
         ntfy_topic = env.get("NTFY_TOPIC")
         if ntfy_topic:
-            send_ntfy_alert(ntfy_topic, subject, ntfy_message, ntfy_priority)
+            send_ntfy_alert(ntfy_topic, ntfy_title, ntfy_message, ntfy_priority)
     else:
         print(f"No status change ({current_status}) - no email sent.")
 
